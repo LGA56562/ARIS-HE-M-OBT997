@@ -81,6 +81,7 @@ input{text-align:center}
   <hr>
   <button id="csvBtn">保存したデータのダウンロード</button>
   <button id="calBtn">姿勢角のキャリブレーション</button>
+  <button id="feedbackBtn">フィードバックの送信</button>
 
   <hr>
   <div class="box">
@@ -174,6 +175,14 @@ calBtn.onclick=()=>{
   cRoll.textContent=CRoll.toFixed(1);
   cYaw.textContent=CYaw.toFixed(1);
   cPitch.textContent=CPitch.toFixed(1);
+};
+
+/* フィードバック */
+feedbackBtn.onclick = () => {
+  window.open(
+    "https://forms.gle/kL5mNCyb6tyjehG68",
+    "_blank"
+  );
 };
 
 blInput.oninput=updateTrigger;

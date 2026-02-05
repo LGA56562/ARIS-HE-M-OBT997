@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIS-HE/M（仮） v1.0 OBT</title>
+
+<style>
+body{margin:0;font-family:sans-serif;background:#111;color:#eee}
+#cameraArea{position:relative;width:100%;height:45vh;background:#000;overflow:hidden}
+video{width:100%;height:100%;object-fit:cover}
+
+#reticle{position:absolute;top:50%;left:50%;width:60px;height:60px;transform:translate(-50%,-50%)}
+#reticle::before,#reticle::after{content:"";position:absolute;background:#00ff00}
+#reticle::before{width:100%;height:2px;top:50%}
+#reticle::after{height:100%;width:2px;left:50%}
+
+.scale{position:absolute;font-size:14px;background:rgba(0,0,0,.4);padding:4px}
+#rollScale{top:4px;left:50%;transform:translateX(-50%)}
+#pitchScale{right:4px;top:50%;transform:translateY(-50%)}
+#yawScale{bottom:4px;left:50%;transform:translateX(-50%)}
+#altiHud{left:4px;top:50%;transform:translateY(-50%);color:#00ff00;font-weight:bold}
+
+.section{padding:8px}
+button,input{width:100%;padding:10px;font-size:16px;border-radius:8px;border:none}
+button{background:#444;color:#fff;margin-top:6px}
+input{text-align:center}
+
+.lock{background:#331111!important;color:#ff5555!important}
+.active{background:#113311!important;color:#55ff55!important}
+
+.box{background:#222;padding:8px;border-radius:8px;margin-top:8px;text-align:center}
+</style>
+</head>
+
+<body>
+<h4>ARIS-HE/M(OBT版)</h4>
+  
+<div id="cameraArea">
+  <video id="video" autoplay playsinline></video>
+  <div id="reticle"></div>
+  <div id="rollScale" class="scale">Roll:<span id="mRoll">--</span></div>
+  <div id="pitchScale" class="scale">Pitch:<span id="mPitch">--</span></div>
+  <div id="yawScale" class="scale">Yaw:<span id="mYaw">--</span></div>
+  <div id="altiHud" class="scale">予測高度:<span id="alti">--</span>m</div>
+</div>
+
+<div class="section">
+  <hr>
+  <!-- カメラ許可 -->
+  <button id="camBtn">1:カメラに接続</button>
+
+  <!-- センサ許可 -->
+  <button id="sensorBtn">2:センサに接続</button>
+
+  <!-- ベースラインボックス -->
+  <input id="blInput" type="number" placeholder="3:ベースライン（m）を入力">
+
+  <hr>  
+  <button id="triggerBtn" class="lock">LOCK</button>
+  <hr>
+
+  <div class="box">
+    Roll:<span id="roll">--</span>
+    Yaw:<span id="yaw">--</span>
+    Pitch:<span id="pitch">--</span><br>
+    CR:<span id="cRoll">0</span>
+    CY:<span id="cYaw">0</span>
+    CP:<span id="cPitch">0</span>
+  </div>
+
+  <hr>
+  <button id="csvBtn">保存したデータのダウンロード</button>
+  <button id="calBtn">姿勢角のキャリブレーション</button>
+
+  <hr>
+  <div class="box">
+    バージョン情報：ARIS-HE/M（仮） v1.0 OBT<br />
+    作った人：LGA56562
+  </div>
+</div>
+
+<script>
+let camOK=false, sensorOK=false;
+let Roll=0,Yaw=0,Pitch=0;
+let CRoll=0,CYaw=0,CPitch=0;
+let MRoll=0,MYaw=0,MPitch=0;
+
+let csv="time,MRoll(deg),MYaw(deg),MPitch(deg),BaseLine(m),Altitude(m)\n";
+
+/* 時刻：人が読める形式 */
+function nowString(){
+  const d=new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+" "+
+         String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+":"+String(d.getSeconds()).padStart(2,"0");
+}
+
+function updateTrigger(){
+  const ok=camOK && sensorOK && blInput.value;
+  triggerBtn.textContent=ok?"タップで計算・保存":"LOCK";
+  triggerBtn.className=ok?"active":"lock";
+}
+
+/* ① カメラ */
+camBtn.onclick=async()=>{
+  const stream=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:"environment"}
+  });
+  video.srcObject=stream;
+  camOK=true;
+  camBtn.textContent="カメラ接続済";
+  updateTrigger();
+};
+
+/* ② センサ */
+sensorBtn.onclick=async()=>{
+  try{
+    if(DeviceOrientationEvent.requestPermission){
+      const r=await DeviceOrientationEvent.requestPermission();
+      if(r!=="granted") return;
+    }
+    window.addEventListener("deviceorientation",e=>{
+      Roll=e.gamma??0;
+      Pitch=e.beta??0;
+      Yaw=e.alpha??0;
+
+      MRoll=Roll+CRoll;
+      MYaw=Yaw+CYaw;
+      MPitch=Pitch-90+CPitch;
+
+      roll.textContent=Roll.toFixed(1);
+      yaw.textContent=Yaw.toFixed(1);
+      pitch.textContent=Pitch.toFixed(1);
+      mRoll.textContent=MRoll.toFixed(1);
+      mYaw.textContent=MYaw.toFixed(1);
+      mPitch.textContent=MPitch.toFixed(1);
+    });
+    sensorOK=true;
+    sensorBtn.textContent="センサ接続済";
+    updateTrigger();
+  }catch(e){}
+};
+
+/* 記録 */
+triggerBtn.onclick=()=>{
+  if(triggerBtn.className!=="active") return;
+  const BL=Number(blInput.value);
+  const Alti=BL*Math.tan(MPitch*Math.PI/180);
+  alti.textContent=Alti.toFixed(2);
+  csv+=`${nowString()},${MRoll},${MYaw},${MPitch},${BL},${Alti}\n`;
+};
+
+/* CSV */
+csvBtn.onclick=()=>{
+  const b=new Blob([csv],{type:"text/csv"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b);
+  a.download="log.csv";
+  a.click();
+};
+
+/* キャリブレーション */
+calBtn.onclick=()=>{
+  CRoll=-Roll; CYaw=-Yaw; CPitch=-Pitch;
+  cRoll.textContent=CRoll.toFixed(1);
+  cYaw.textContent=CYaw.toFixed(1);
+  cPitch.textContent=CPitch.toFixed(1);
+};
+
+blInput.oninput=updateTrigger;
+</script>
+
+</body>
+</html>
